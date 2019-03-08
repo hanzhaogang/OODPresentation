@@ -16,6 +16,7 @@ package com.amazonaws.samples;
 
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -29,6 +30,10 @@ import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -54,6 +59,7 @@ public class AmazonSESSample {
     static String allEmail_path="allEmail.txt";
 	static String addedEmail_path="addedEmail.txt";
 	static String frequency_path="frequency_heartBeat.txt";
+	static String log_path="log.txt";
     
     /*
      * Before running the code:
@@ -78,7 +84,7 @@ public class AmazonSESSample {
     public static void main(String[] args) throws IOException {
     	// determine the correct file path.
     	String os=System.getProperty("os.name");
-    	System.out.println(os);
+    	writeLog(os);
     	if(os.contains("Window")) {
     		allEmail_path=windows_prefix+"allEmail.txt";
     		addedEmail_path=windows_prefix+"addedEmail.txt";
@@ -92,12 +98,14 @@ public class AmazonSESSample {
     	
    		String pageContent="empty";
    		String prePageContent="empty";
+   		//https://www.welcomenb.ca/content/wel-bien/en/immigrating/content/HowToImmigrate/NBProvincialNomineeProgram/ExpressEntry.html
 		URL url = new URL("https://www.welcomenb.ca/content/wel-bien/en/immigrating/content/HowToImmigrate/NBProvincialNomineeProgram.html");
-		final int DAY=1000*60*60*24;// 24 hours
-		long runningTime=0;
+		final long DAY=1000*60*60*24;// 24 hours
+		long runningTime=0L;
+    	long checkingInterval=1000L*60L*3L;// 3minutes
 
 		while(true) {
-			System.out.println("entering the main loop!\n\n");
+			writeLog("entering the main loop!\n\n");
 			sendAccountSetupMail(allEmail_path,addedEmail_path);
 
     		try {
@@ -107,17 +115,19 @@ public class AmazonSESSample {
     				prePageContent=new String(pageContent);
     			}else {
     				if(!prePageContent.equals(pageContent)&&!prePageContent.equals("empty")) {// web page changed
-    					System.out.println("web page content changed!");
+    					writeLog("web page content changed!");
     					boolean sent=sendPageChangedNotification(pageContent);
+    					sent=sendPageChangedNotification(pageContent);
+    					sent=sendPageChangedNotification(pageContent);
     					if(sent) {
-    						System.out.println("page changed notification mail sent");
+    						writeLog("page changed notification mail sent !");
     					}
     					prePageContent=new String(pageContent);
     				}
     			}
     			
-    			int checkingInterval=1000*60*60;//60 minutes
     			Thread.sleep(checkingInterval);
+    			writeLog("server heart beat ");
     			runningTime+=checkingInterval;
 
     			//send account setup mail
@@ -126,16 +136,17 @@ public class AmazonSESSample {
     			}
 
     			//send heart beat mail
-    			System.out.println("server heart beat ");
     			if(runningTime%DAY==0) {
+    				writeLog("A day passed, and now begin to send hear beat mails");
     				List<String> allMail=getEmailFrom(allEmail_path);
     				List<Integer> freq=getFrequencyFrom(frequency_path);
     				for(int i=0;i<allMail.size();i++) {
     					Integer fre=freq.get(i);
     					if((runningTime/DAY)%fre==0) {
-    						boolean sent=sendHeartBeatMail(pageContent,fre);
+    						writeLog("sending heart beat to :  "+ allMail.get(i));
+    						boolean sent=sendHeartBeatMail(pageContent,fre,allMail.get(i));
     						if(sent) {
-    							System.out.println("heart beat mail sent");
+    							writeLog("heart beat mail sent!");
     						}
     					}
     					
@@ -167,7 +178,7 @@ public class AmazonSESSample {
 		boolean sent=sendAccountSetupMail(toAddress);
 		if(sent) {
 			recordAddedAccount(toAddress,addedEmail_path);
-			System.out.println("account setup notification mail sent, please check!");
+			writeLog("account setup notification mail sent, please check!");
 		}
 	}
 
@@ -227,7 +238,7 @@ public class AmazonSESSample {
     			Files.newBufferedReader(Paths.get(path), StandardCharsets.UTF_8)){
     				r.lines().forEach(ln->line.add(ln));
     	}catch(Exception e) {
-    		System.out.println(e);
+    		writeLog(e.toString());
     	}
     	return line;
     }
@@ -235,6 +246,22 @@ public class AmazonSESSample {
     
     private static boolean pageChanged() {
     	return false;
+    }
+
+    
+    private static boolean sendHeartBeatMail(String pageContent,Integer days,String TO) {
+    	String FROM = "hanzhaogang@gmail.com";  
+        // production access, this address must be verified.
+        String BODY = "This email was sent to notify that we are monitoring the website for you. "
+        		+ "the newest content as below:\n"
+        		+ "(you will receive this heart beat mail every"+days+"days. If you want to change"
+        				+ "the frequency, contact the administrator.)"
+        		+"\n\n\n\n"+ pageContent;
+
+        String SUBJECT = "we are monitoring the website for you, and nothing has changed!";
+    	
+        //List<String> allEmail=getEmailFrom(allEmail_path);
+        return sendMail(FROM,TO,BODY,SUBJECT);
     }
    
     private static boolean sendHeartBeatMail(String pageContent,Integer days) {
@@ -292,7 +319,7 @@ public class AmazonSESSample {
         		withDestination(destination).withMessage(message);
 
         try {
-            System.out.println(
+            writeLog(
             		"Attempting to send an email through Amazon SES by using the AWS SDK for Java...");
 
             /*
@@ -327,13 +354,37 @@ public class AmazonSESSample {
 
             // Send the email.
             client.sendEmail(request);
-            System.out.println("Email sent!");
+            writeLog("Email sent! from: "+ FROM + "  to: "+ TO);
             return true;
 
         } catch (Exception ex) {
-            System.out.println("The email was not sent.");
-            System.out.println("Error message: " + ex.getMessage());
+            writeLog("The email was not sent from: "+ FROM + "  to: "+TO);
+            writeLog("Error message: " + ex.getMessage());
             return false;
         }
+    }
+    
+   
+    private static boolean writeLog(String logLine) {
+    	System.out.println(logLine);
+    	return writeLineTo(logLine,log_path);
+    }
+    
+    private static boolean writeLineTo(String line,String path) {
+    	try(BufferedWriter w=
+    			Files.newBufferedWriter(Paths.get(path),StandardCharsets.UTF_8,
+    					StandardOpenOption.CREATE,StandardOpenOption.APPEND)){
+    		Instant now = Instant.now();
+    		ZoneId zoneId = ZoneId.of("Asia/Shanghai");
+    		ZonedDateTime dateAndTimeInSH = ZonedDateTime.ofInstant(now, zoneId);
+    		
+    		w.append(dateAndTimeInSH.toString());
+    		w.append("   ");
+    		w.append(line);
+    		w.newLine();
+    	}catch(Exception e) {
+    		
+    	}
+    	return true;
     }
 }
